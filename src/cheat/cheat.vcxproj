@@ -1039,6 +1039,10 @@
     <ClInclude Include="utils\holder.hpp" />
     <ClInclude Include="utils\keybind_system.hpp" />
     <ClInclude Include="utils\memory_holder.hpp" />
+    <ClInclude Include="utils\memory\memory_holder.hpp" />
+    <ClInclude Include="utils\memory\memory_reader_i.hpp" />
+    <ClInclude Include="utils\memory\update_policy.hpp" />
+    <ClInclude Include="utils\memory\entity_example.hpp" />
     <ClInclude Include="utils\timer.hpp" />
     <ClInclude Include="utils\debug_logger.hpp" />
     <ClInclude Include="utils\ease.hpp" />

@@ -4,6 +4,11 @@
 #include "../features/threading.hpp"
 #include "../runtime/app.hpp"
 
+// New generic, engine-agnostic module
+#include "memory/memory_holder.hpp"
+#include "memory/memory_reader_i.hpp"
+#include "memory/update_policy.hpp"
+
 namespace utils {
     enum class EMemoryHolderError {
         unknown,
@@ -12,6 +17,52 @@ namespace utils {
         invalid_memory_address
     };
 
+    // -----------------------------------------------------------------------
+    // Bridge adapter: wraps sdk::memory::Memory behind the generic interface
+    // -----------------------------------------------------------------------
+    class AppMemoryReader final : public memory::memory_reader_i {
+    public:
+        auto read_raw( uintptr_t address, void* out, size_t size ) -> bool override{
+            if ( !app || !app->memory ) return false;
+            // The existing Memory class provides a pointer-based read<T> overload.
+            // We call read_amount which handles arbitrary sizes.
+            try {
+                return app->memory->read_amount(
+                    static_cast< intptr_t >( address ),
+                    *static_cast< uint8_t* >( out ),
+                    size
+                );
+            } catch ( ... ) { return false; }
+        }
+    };
+
+    /**
+     * \brief Returns a singleton AppMemoryReader instance.
+     *
+     * The reader is stateless so a single global instance is sufficient.
+     */
+    inline auto get_app_memory_reader( ) -> AppMemoryReader*{
+        static AppMemoryReader instance;
+        return &instance;
+    }
+
+    /**
+     * \brief Builds an update_policy_t that mirrors the original MemoryHolder behaviour:
+     *        render thread → always update, others → 150µs throttle.
+     */
+    inline auto make_default_policy( ) -> memory::update_policy_t{
+        if ( g_threading )
+            return memory::update_policy_t::with_preferred_thread( g_threading->render_thread );
+        return { };
+    }
+
+    // -----------------------------------------------------------------------
+    // MemoryHolder<T> — backwards-compatible wrapper
+    //
+    // Delegates to utils::memory::memory_holder<T> for the generic logic while
+    // preserving the original API (throwing get(), intptr_t addresses, etc.)
+    // so that no existing call-site needs to change.
+    // -----------------------------------------------------------------------
     template <typename T>
     class MemoryHolder {
     public:
