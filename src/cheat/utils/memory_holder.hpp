@@ -24,12 +24,10 @@ namespace utils {
     public:
         auto read_raw( uintptr_t address, void* out, size_t size ) -> bool override{
             if ( !app || !app->memory ) return false;
-            // The existing Memory class provides a pointer-based read<T> overload.
-            // We call read_amount which handles arbitrary sizes.
             try {
                 return app->memory->read_amount(
                     static_cast< intptr_t >( address ),
-                    *static_cast< uint8_t* >( out ),
+                    static_cast< uint8_t* >( out ),
                     size
                 );
             } catch ( ... ) { return false; }

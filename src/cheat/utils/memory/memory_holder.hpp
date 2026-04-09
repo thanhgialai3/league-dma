@@ -125,14 +125,34 @@ namespace utils::memory {
          */
         auto update( ) -> std::expected< bool, memory_holder_error >
         {
-            if ( !should_update( ) ) return false;
-            return force_update_internal( );
+            // Check preferred-thread bypass without the lock (thread id is immutable)
+            const bool is_preferred =
+                m_policy.bypass_on_preferred_thread && std::this_thread::get_id( ) == m_policy.preferred_thread;
+
+            std::lock_guard lock( m_mutex );
+
+            if ( !is_preferred )
+            {
+                const auto now = std::chrono::steady_clock::now( );
+                const auto delta =
+                    std::chrono::duration_cast< std::chrono::microseconds >( now - m_last_updated ).count( );
+
+                if ( delta >= 0 && delta <= m_policy.min_interval.count( ) ) return false;
+
+                m_last_updated = now;
+            }
+
+            return force_update_unlocked( );
         }
 
         /**
          * \brief Force-read m_value from m_address, bypassing the update policy.
          */
-        auto force_update( ) -> std::expected< bool, memory_holder_error > { return force_update_internal( ); }
+        auto force_update( ) -> std::expected< bool, memory_holder_error >
+        {
+            std::lock_guard lock( m_mutex );
+            return force_update_unlocked( );
+        }
 
         // -------------------------------------------------------------------
         // Copy helpers
@@ -182,34 +202,10 @@ namespace utils::memory {
         [[nodiscard]] auto is_valid_unlocked( ) const -> bool { return m_address != 0 && m_value != nullptr; }
 
         /**
-         * \brief Hybrid cache check.
-         *
-         * If the current thread is the preferred thread (e.g. render thread) and bypass
-         * is enabled, always return true → the caller gets fresh data every frame.
-         *
-         * For all other threads, apply time-based throttling:  if less than min_interval
-         * has elapsed since the last update, return false → reuse the cached value.
-         *
-         * This prevents excessive DMA reads from background threads while keeping
-         * render-thread reads at full speed.
+         * \brief Perform the actual memory read. Caller MUST hold m_mutex.
          */
-        auto should_update( ) -> bool
+        auto force_update_unlocked( ) -> std::expected< bool, memory_holder_error >
         {
-            if ( m_policy.bypass_on_preferred_thread && std::this_thread::get_id( ) == m_policy.preferred_thread )
-                return true;
-
-            const auto now   = std::chrono::steady_clock::now( );
-            const auto delta = std::chrono::duration_cast< std::chrono::microseconds >( now - m_last_updated ).count( );
-
-            if ( delta <= m_policy.min_interval.count( ) && delta >= 0 ) return false;
-
-            m_last_updated = now;
-            return true;
-        }
-
-        auto force_update_internal( ) -> std::expected< bool, memory_holder_error >
-        {
-            std::lock_guard lock( m_mutex );
             if ( !m_value ) return std::unexpected( memory_holder_error::invalid_memory_address );
             if ( !m_reader ) return std::unexpected( memory_holder_error::unknown );
             try
